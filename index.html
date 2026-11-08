@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YLYIBAS EYES FOR ALL</title>
+
+<style>
+body {
+  background: #101827;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  padding: 15px;
+}
+h1 { color: #54d6b0; }
+button {
+  padding: 15px;
+  margin: 8px;
+  border: 0;
+  border-radius: 10px;
+  font-size: 17px;
+  background: #54d6b0;
+  font-weight: bold;
+}
+button:focus-visible { outline: 3px solid white; }
+video {
+  width: 100%;
+  max-width: 500px;
+  border-radius: 15px;
+  background: black;
+}
+.card {
+  background: #1b293b;
+  padding: 20px;
+  margin: 15px auto;
+  border-radius: 15px;
+  max-width: 600px;
+}
+#result {
+  font-size: 22px;
+  line-height: 1.5;
+}
+</style>
+</head>
+
+<body>
+
+<h1>YLYIBAS</h1>
+<h2>EYES FOR ALL 👁️</h2>
+<p>Assistant visuel intelligent</p>
+
+<div class="card">
+  <video id="camera" autoplay muted playsinline></video>
+  <br>
+  <button id="start">DÉMARRER</button>
+  <button id="stop">ARRÊTER</button>
+</div>
+
+<div class="card">
+  <h2>Analyse visuelle</h2>
+  <p id="status" aria-live="polite">En attente</p>
+  <p id="result" aria-live="polite">L'assistant est prêt.</p>
+  <button id="repeat">RÉPÉTER</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+<script>
+const camera = document.getElementById("camera");
+const status = document.getElementById("status");
+const result = document.getElementById("result");
+
+let model = null;
+let stream = null;
+let timer = null;
+let busy = false;
+let lastSpeech = "";
+
+function speak(text) {
+  if (!window.speechSynthesis || !text) return;
+
+  speechSynthesis.cancel();
+
+  const msg = new SpeechSynthesisUtterance(text);
+  msg.lang = "fr-FR";
+  msg.rate = 0.9;
+
+  speechSynthesis.speak(msg);
+}
+
+async function startAssistant() {
+  try {
+    document.getElementById("start").disabled = true;
+    status.textContent = "Chargement de l'IA...";
+
+    if (!window.isSecureContext) {
+      throw new Error("Ouvre l'application avec une adresse HTTPS.");
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Caméra indisponible sur ce navigateur.");
+    }
+
+    if (!model) {
+      model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
+    }
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 640 }
+      }
+    });
+
+    camera.srcObject = stream;
+    await camera.play();
+    status.textContent = "YLYIBAS ACTIVÉ";
+
+    await analyse();
+    timer = setInterval(analyse, 5000);
+  } catch (error) {
+    status.textContent = "ERREUR : " + error.message;
+    document.getElementById("start").disabled = false;
+  }
+}
+
+async function analyse() {
+  if (!model || !camera.videoWidth || busy) return;
+
+  busy = true;
+
+  try {
+    const predictions = await model.detect(camera);
+    const objects = predictions
+      .filter(item => item.score > 0.50)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    if (objects.length === 0) {
+      result.textContent = "Aucun objet clairement identifié.";
+      busy = false;
+      return;
+    }
+
+    const descriptions = objects.map(item => {
+      const center = item.bbox[0] + item.bbox[2] / 2;
+      let position = "au centre";
+
+      if (center < camera.videoWidth * 0.34) {
+        position = "à gauche";
+      } else if (center > camera.videoWidth * 0.66) {
+        position = "à droite";
+      }
+
+      return item.class + " " + position;
+    });
+
+    const text = "Je détecte : " + descriptions.join(", ");
+    result.textContent = text;
+
+    if (text !== lastSpeech) {
+      speak(text);
+      lastSpeech = text;
+    }
+  } catch (error) {
+    status.textContent = "Erreur pendant l'analyse.";
+    console.error(error);
+  } finally {
+    busy = false;
+  }
+}
+
+function stopAssistant() {
+  if (timer) clearInterval(timer);
+  timer = null;
+
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+
+  stream = null;
+  camera.srcObject = null;
+
+  if (window.speechSynthesis) {
+    speechSynthesis.cancel();
+  }
+
+  status.textContent = "Assistant arrêté";
+  document.getElementById("start").disabled = false;
+}
+
+document.getElementById("start")
+  .addEventListener("click", startAssistant);
+
+document.getElementById("stop")
+  .addEventListener("click", stopAssistant);
+
+document.getElementById("repeat")
+  .addEventListener("click", () => {
+    speak(document.getElementById("result").textContent);
+  });
+</script>
+</body>
+</html>
